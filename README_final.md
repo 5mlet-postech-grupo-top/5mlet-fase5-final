@@ -20,7 +20,7 @@ O sistema foi desenvolvido seguindo boas práticas de **Machine Learning Enginee
 # 🏗️ Arquitetura da Solução
 
 ```mermaid
-flowchart LR;
+graph TD;
     A[Datasets na pasta /data] --> B[Padronização de Schema]
     B --> C[Feature Engineering]
     C --> D[Treinamento Modelo]
