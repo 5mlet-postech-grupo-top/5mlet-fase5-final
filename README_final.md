@@ -21,15 +21,15 @@ O sistema foi desenvolvido seguindo boas práticas de **Machine Learning Enginee
 
 ```mermaid
 flowchart LR;
-    A[Datasets na pasta /data] --> B[Padronização de Schema];
-    B --> C[Feature Engineering];
-    C --> D[Treinamento Modelo];
-    D --> E[Validação Temporal];
-    D --> F[Salvar Artefatos];
-    F --> G[API FastAPI];
-    G --> H[/predict];
-    G --> I[/explain];
-    G --> J[/drift];
+    A[Datasets na pasta /data] --> B[Padronização de Schema]
+    B --> C[Feature Engineering]
+    C --> D[Treinamento Modelo]
+    D --> E[Validação Temporal]
+    D --> F[Salvar Artefatos]
+    F --> G[API FastAPI]
+    G --> H[/predict]
+    G --> I[/explain]
+    G --> J[/drift]
 ```
 
 ---
