@@ -3,10 +3,10 @@ from __future__ import annotations
 import argparse
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import joblib
-import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -18,6 +18,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 from .preprocessing import split_X_y
 from .feature_engineering import add_derived_features
+from .data_loader import load_all_training_data
 from .utils import ARTIFACT_DIR, DATA_DIR, DEFAULT_MODEL_VERSION, logger, make_bins, save_json
 
 
@@ -49,15 +50,15 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
     X, y = split_X_y(df)
     X = add_derived_features(X)
 
-    # Ensure object columns are consistently strings (avoid mixed types in imputers)
+    # ensure object cols are strings
     for c in X.columns:
-        if X[c].dtype == 'object':
+        if X[c].dtype == "object":
             X[c] = X[c].astype(str)
 
     pre, numeric, categorical = build_preprocessor(X)
 
     model = RandomForestClassifier(
-        n_estimators=int(os.getenv('RF_TREES','400')),
+        n_estimators=int(os.getenv("RF_TREES", "400")),
         random_state=42,
         n_jobs=-1,
         class_weight="balanced_subsample",
@@ -90,19 +91,21 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
         except Exception:
             continue
 
+    feature_order = list(X_train.columns)
+
     if save_reference:
         DATA_DIR.mkdir(exist_ok=True)
-        ref_cols = list(dict.fromkeys(list(X_train.columns)))  # stable order
-        X_train[ref_cols].to_csv(DATA_DIR / "train_reference.csv", index=False)
+        X_train[feature_order].to_csv(DATA_DIR / "train_reference.csv", index=False)
 
     metadata = {
         "model_version": model_version,
         "trained_at_utc": datetime.now(timezone.utc).isoformat(),
-        "target": "DEFASAGEM_2021 < 0",
+        "target": "defasagem < 0 (behind ideal level)",
+        "feature_order": feature_order,
         "features": {
             "numeric": numeric,
             "categorical": categorical,
-            "derived": [c for c in X.columns if c not in numeric + categorical],
+            "derived": ["ANOS_PM_POR_IDADE"],
         },
         "metrics": metrics,
         "threshold": 0.5,
@@ -111,7 +114,6 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(clf, ARTIFACT_DIR / "model.joblib")
-    joblib.dump(clf.named_steps["preprocessor"], ARTIFACT_DIR / "preprocessor.joblib")
     save_json(ARTIFACT_DIR / "metadata.json", metadata)
 
     logger.info("training_complete", extra={"metrics": metrics, "model_version": model_version})
@@ -120,12 +122,12 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, required=True, help="Path to PEDE_PASSOS xlsx")
     parser.add_argument("--model-version", type=str, default=DEFAULT_MODEL_VERSION)
-    parser.add_argument("--no-save-reference", action="store_true", help="Do not save training reference parquet")
+    parser.add_argument("--no-save-reference", action="store_true")
+    parser.add_argument("--data-dir", type=str, default=str(DATA_DIR), help="Default: ./data")
     args = parser.parse_args()
 
-    df = pd.read_excel(args.data)
+    df = load_all_training_data(Path(args.data_dir))
     train(df, args.model_version, save_reference=not args.no_save_reference)
 
 

@@ -2,85 +2,72 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict
 
 import numpy as np
-import pandas as pd
-from pythonjsonlogger import jsonlogger
 
+# Project paths (relative to repo root)
+DATA_DIR = Path("data")
+ARTIFACT_DIR = Path("app") / "model"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACT_DIR = PROJECT_ROOT / "app" / "model"
-DATA_DIR = PROJECT_ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DEFAULT_MODEL_VERSION = "local"
 
-DEFAULT_MODEL_VERSION = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S_utc")
-
-
-def get_logger(name: str = "pede-ml") -> logging.Logger:
-    logger = logging.getLogger(name)
-    if logger.handlers:
-        return logger
-    logger.setLevel(logging.INFO)
+logger = logging.getLogger("pede-mlops")
+if not logger.handlers:
     handler = logging.StreamHandler()
-    handler.setFormatter(jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.propagate = False
-    return logger
+logger.setLevel(logging.INFO)
 
 
-logger = get_logger()
-
-
-def safe_mkdir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def save_json(path: Path, obj: Dict[str, Any]) -> None:
-    safe_mkdir(path.parent)
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_json(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def load_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def make_bins(s, n_bins: int = 10) -> np.ndarray:
+    """Create numeric bins using quantiles; returns monotonically increasing edges."""
+    arr = np.asarray(s, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if arr.size == 0:
+        return np.array([0.0, 1.0], dtype=float)
+    qs = np.linspace(0, 1, n_bins + 1)
+    edges = np.quantile(arr, qs)
+    # ensure strictly increasing
+    edges = np.unique(edges)
+    if edges.size < 2:
+        edges = np.array([edges[0], edges[0] + 1.0], dtype=float)
+    return edges
 
 
 def compute_psi(expected: np.ndarray, actual: np.ndarray, bins: np.ndarray) -> float:
-    """Population Stability Index (PSI). Lower is better.
-    bins must be monotonically increasing; includes edges.
-    """
-    expected = expected[np.isfinite(expected)]
-    actual = actual[np.isfinite(actual)]
+    """Population Stability Index between expected and actual distributions."""
+    expected = np.asarray(expected, dtype=float)
+    actual = np.asarray(actual, dtype=float)
+
+    expected = expected[~np.isnan(expected)]
+    actual = actual[~np.isnan(actual)]
     if expected.size == 0 or actual.size == 0:
         return float("nan")
 
     exp_counts, _ = np.histogram(expected, bins=bins)
     act_counts, _ = np.histogram(actual, bins=bins)
 
-    exp_perc = exp_counts / max(exp_counts.sum(), 1)
-    act_perc = act_counts / max(act_counts.sum(), 1)
+    exp_pct = exp_counts / max(exp_counts.sum(), 1)
+    act_pct = act_counts / max(act_counts.sum(), 1)
 
-    # avoid zeros
+    # avoid div-by-zero
     eps = 1e-6
-    exp_perc = np.clip(exp_perc, eps, 1)
-    act_perc = np.clip(act_perc, eps, 1)
+    exp_pct = np.clip(exp_pct, eps, 1)
+    act_pct = np.clip(act_pct, eps, 1)
 
-    psi = np.sum((act_perc - exp_perc) * np.log(act_perc / exp_perc))
+    psi = np.sum((act_pct - exp_pct) * np.log(act_pct / exp_pct))
     return float(psi)
-
-
-def make_bins(series: pd.Series, n_bins: int = 10) -> np.ndarray:
-    x = series.dropna().astype(float)
-    if x.empty:
-        return np.array([0.0, 1.0], dtype=float)
-    qs = np.linspace(0, 1, n_bins + 1)
-    bins = np.unique(np.quantile(x, qs))
-    if bins.size < 2:
-        # constant feature
-        v = float(x.iloc[0])
-        bins = np.array([v - 1e-6, v + 1e-6])
-    return bins.astype(float)
