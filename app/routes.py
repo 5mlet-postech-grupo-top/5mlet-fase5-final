@@ -10,10 +10,11 @@ import joblib
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 from src.feature_engineering import add_derived_features
+from src.preprocessing import enforce_types
 from src.utils import ARTIFACT_DIR, DATA_DIR, compute_psi, load_json, logger
 
 router = APIRouter()
@@ -83,8 +84,16 @@ def load_shap_explainer():
 
 
 class PredictRequest(BaseModel):
+    """
+        Schema flexível para receber dados de qualquer ano do Datathon.
+        Mantemos campos core para gerar um bom Swagger/OpenAPI docs.
+        """
     model_config = ConfigDict(extra="allow")
 
+    student_id: Optional[str] = Field(None, description="Identificador único do aluno")
+    IDADE: Optional[int] = Field(None, description="Idade do aluno")
+    FASE_TURMA: Optional[str] = Field(None, description="Ex: 5G")
+    INDE: Optional[float] = Field(None, description="Indicador de Desenvolvimento Educacional")
 
 def _extract_student_id(payload: Dict[str, Any]) -> str:
     """Best-effort student identifier for history/explain."""
@@ -181,27 +190,22 @@ def health():
     return {"status": "ok"}
 
 
-@router.get("/metrics")
-def metrics():
-    data = generate_latest()
-    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
-
-
 @router.post("/predict")
 def predict(body: PredictRequest):
     t0 = time.time()
     endpoint = "/predict"
     try:
         model, meta = load_artifacts()
-        payload = dict(body)
+        payload = body.model_dump()
         student_id = _extract_student_id(payload)
 
         X = pd.DataFrame([payload])
         X = add_derived_features(X)
+        X = enforce_types(X)
         X = _ensure_expected_columns(X, meta)
 
         proba = float(model.predict_proba(X)[:, 1][0])
-        threshold = float(meta.get("threshold", 0.5))
+        threshold = float(meta.get("threshold", 0.35))
         pred = int(proba >= threshold)
 
         out: Dict[str, Any] = {

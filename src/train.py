@@ -20,7 +20,7 @@ from .preprocessing import split_X_y
 from .feature_engineering import add_derived_features
 from .data_loader import load_all_training_data
 from .utils import ARTIFACT_DIR, DATA_DIR, DEFAULT_MODEL_VERSION, logger, make_bins, save_json
-
+from .preprocessing import split_X_y, enforce_types
 
 def build_preprocessor(numeric_cols: List[str], categorical_cols: List[str]) -> ColumnTransformer:
     num_pipe = Pipeline(steps=[
@@ -46,6 +46,8 @@ def build_preprocessor(numeric_cols: List[str], categorical_cols: List[str]) -> 
 def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> Dict:
     X, y = split_X_y(df)
     X = add_derived_features(X)
+
+    X = enforce_types(X)
 
     # 1. Definição explícita (Schema Enforcement)
     categorical = ["FASE_TURMA", "PEDRA", "INSTITUICAO"]
@@ -81,8 +83,9 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
     )
     clf.fit(X_train, y_train)
 
+    THRESHOLD = 0.35
     proba = clf.predict_proba(X_val)[:, 1]
-    pred = (proba >= 0.5).astype(int)
+    pred = (proba >= THRESHOLD).astype(int)
 
     metrics = {
         "auc": float(roc_auc_score(y_val, proba)),
@@ -117,7 +120,7 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
             "derived": ["ANOS_PM_POR_IDADE"],
         },
         "metrics": metrics,
-        "threshold": 0.5,
+        "threshold": THRESHOLD,
         "drift_bins": drift_bins,
     }
 
