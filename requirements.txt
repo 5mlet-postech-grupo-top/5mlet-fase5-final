@@ -11,3 +11,5 @@ shap==0.46.0
 pytest==8.3.3
 pytest-cov==5.0.0
 httpx
+huggingface_hub
+python-dotenv

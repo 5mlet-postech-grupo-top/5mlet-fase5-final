@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 app/model/*.joblib
 app/model/*.json
+.env
