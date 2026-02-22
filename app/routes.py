@@ -65,7 +65,7 @@ def load_artifacts():
         ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
         # Substitua pelo nome exato do seu repositório no Hugging Face
-        REPO_ID = "seu-usuario/passos-magicos-rf"
+        REPO_ID = "tiagoparibeiro/passos-magicos-model"
 
         try:
             hf_hub_download(repo_id=REPO_ID, filename="model.joblib", local_dir=ARTIFACT_DIR)
