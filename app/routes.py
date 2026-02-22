@@ -12,6 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from huggingface_hub import hf_hub_download
 
 from src.feature_engineering import add_derived_features
 from src.preprocessing import enforce_types
@@ -58,8 +59,20 @@ def _db():
 def load_artifacts():
     model_path = ARTIFACT_DIR / "model.joblib"
     meta_path = ARTIFACT_DIR / "metadata.json"
+    # Se os arquivos não existirem, fazemos o pull do Model Registry
     if not model_path.exists() or not meta_path.exists():
-        raise RuntimeError("Model artifacts not found. Run `python -m src.train` first.")
+        logger.info("Artefatos não encontrados localmente. Baixando do Hugging Face...")
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Substitua pelo nome exato do seu repositório no Hugging Face
+        REPO_ID = "seu-usuario/passos-magicos-rf"
+
+        try:
+            hf_hub_download(repo_id=REPO_ID, filename="model.joblib", local_dir=ARTIFACT_DIR)
+            hf_hub_download(repo_id=REPO_ID, filename="metadata.json", local_dir=ARTIFACT_DIR)
+        except Exception as e:
+            raise RuntimeError(f"Falha ao baixar modelo do Hugging Face: {e}")
+
     model = joblib.load(model_path)
     meta = load_json(meta_path)
     return model, meta
