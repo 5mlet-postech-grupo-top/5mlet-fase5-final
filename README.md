@@ -207,8 +207,9 @@ Esse valor é gerado a partir de `predict_proba()` do modelo RandomForest.
 
 Regra:
 
-```bash
-curl "http://localhost:8000/explain?student_id=123&limit=10"
+```
+Se risk_score >= threshold → risk_class = 1 (alto risco)
+Se risk_score < threshold → risk_class = 0 (baixo risco)
 ```
 Se risk_score >= threshold → risk_class = 1 (alto risco)
 Se risk_score < threshold → risk_class = 0 (baixo risco)
