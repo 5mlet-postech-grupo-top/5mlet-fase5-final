@@ -1,3 +1,6 @@
+# Passos Mágicos MLOps: Previsão de Defasagem Escolar
+
+**API em Produção (Cloud):** [https://fivemlet-fase5-final.onrender.com/](https://www.google.com/search?q=https://fivemlet-fase5-final.onrender.com/docs)
 
 # 📊 PEDE – Datathon Machine Learning Engineering
 
@@ -204,6 +207,9 @@ Esse valor é gerado a partir de `predict_proba()` do modelo RandomForest.
 
 Regra:
 
+```
+Se risk_score >= threshold → risk_class = 1 (alto risco)
+Se risk_score < threshold → risk_class = 0 (baixo risco)
 ```
 Se risk_score >= threshold → risk_class = 1 (alto risco)
 Se risk_score < threshold → risk_class = 0 (baixo risco)

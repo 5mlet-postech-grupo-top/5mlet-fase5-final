@@ -1,9 +1,12 @@
 import json
+import pytest
 import pandas as pd
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from src.data_loader import load_all_training_data
 from src.utils import DATA_DIR
 from app.main import app
+from app.routes import load_artifacts
 
 client = TestClient(app)
 
@@ -58,3 +61,36 @@ def test_load_all_training_data():
     except FileNotFoundError:
         # Se os dados não estiverem na máquina de CI, não deve falhar
         pass
+
+
+def test_load_artifacts_from_huggingface(tmp_path):
+    """
+    Garante que a API tenta baixar do Hugging Face se os artefatos locais não existirem,
+    sem fazer requisições reais à internet (Mock).
+    """
+    # 1. Limpa o cache da API para forçar a função a rodar de novo
+    load_artifacts.cache_clear()
+
+    # 2. Usamos o patch para simular (mockar) dependências externas
+    # tmp_path é uma pasta temporária vazia criada pelo próprio pytest
+    with patch("app.routes.ARTIFACT_DIR", tmp_path), \
+            patch("app.routes.hf_hub_download") as mock_hf_download, \
+            patch("app.routes.joblib.load") as mock_joblib_load, \
+            patch("app.routes.load_json") as mock_load_json:
+        # Dizemos o que os mocks devem retornar para o código não quebrar
+        mock_joblib_load.return_value = "modelo_fake"
+        mock_load_json.return_value = {"threshold": 0.35, "model_version": "hf_test"}
+
+        # 3. Executamos a função
+        model, meta = load_artifacts()
+
+        # 4. Verificamos se o hf_hub_download foi chamado exatamente 2 vezes
+        # (uma para o model.joblib e outra para o metadata.json)
+        assert mock_hf_download.call_count == 2
+
+        # Garante que os valores retornados são os que injetamos
+        assert model == "modelo_fake"
+        assert meta["threshold"] == 0.35
+
+    # Limpa o cache novamente para não interferir em outros testes
+    load_artifacts.cache_clear()
