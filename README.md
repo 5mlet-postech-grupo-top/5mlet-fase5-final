@@ -2,123 +2,261 @@
 
 **API em Produção (Cloud):** [https://fivemlet-fase5-final.onrender.com/](https://www.google.com/search?q=https://fivemlet-fase5-final.onrender.com/docs)
 
-Este repositório entrega um projeto de Machine Learning End-to-End (Pipeline de Dados, Treinamento, API, Docker, Testes Unitários e Monitoramento) desenvolvido para a **Associação Passos Mágicos**. O objetivo é prever o risco de defasagem educacional de estudantes e permitir intervenções pedagógicas preventivas.
+# 📊 PEDE – Datathon Machine Learning Engineering
 
-## Arquitetura e Decisões de Negócio
+---
 
-* **Schema Enforcement (Anti-Leakage e Padronização):** O módulo `src/preprocessing.py` lê múltiplos arquivos `.xlsx` (FIAP 2021 vs Base 2024) com schemas distintos e os padroniza em tempo real. Entradas "sujas" (como notas com vírgulas ou texto em colunas numéricas) são tratadas antes de atingirem o modelo.
-* **Otimização de Threshold (Foco em Recall):** Ajustamos o ponto de corte do RandomForestClassifier para **0.35**. Para o contexto de assistência social, priorizamos **Falsos Positivos** sobre **Falsos Negativos**. Com essa calibração, o modelo atinge >97% de Recall, garantindo que a esmagadora maioria das crianças em risco seja detectada.
-* **Model Registry (Hugging Face):** Os binários pesados (`.joblib`) não poluem o repositório Git. A API realiza o download automático da versão mais recente do modelo hospedado no Hugging Face durante o startup do container.
-* **Observabilidade e Explicabilidade:** Integração nativa com métricas do Prometheus e explicabilidade global/local usando SHAP Values.
+# 🎯 Objetivo
 
-## Estrutura do Projeto
+Desenvolver um modelo preditivo capaz de identificar **risco de defasagem educacional** de alunos da Associação Passos Mágicos, permitindo **intervenção pedagógica antecipada**.
 
-```text
-app/
-  main.py             # Inicialização do FastAPI e Prometheus ASGI
-  routes.py           # Endpoints, regras de negócio e pull do Hugging Face
-  model/              # Artefatos do modelo (baixados automaticamente)
-src/
-  data_loader.py      # Ingestão de ./data/*.xlsx
-  preprocessing.py    # Schema Enforcement e Target Engineering
-  feature_engineering.py
-  train.py            # Pipeline de treino, validação e metadados
-  utils.py            # Cálculo de PSI (Drift), logs e helpers
-tests/                # Suíte de testes (Pytest + Mocks)
-Dockerfile            # Containerização Multi-stage (Non-root)
-requirements.txt
+O sistema foi desenvolvido seguindo boas práticas de **Machine Learning Engineering e MLOps**, incluindo:
 
+- Treinamento automatizado com múltiplos datasets
+- API REST para predição
+- Explicabilidade (Top fatores de risco)
+- Monitoramento e detecção de drift
+- Estrutura pronta para deploy em produção
+
+---
+
+# 🏗️ Arquitetura da Solução
+
+```mermaid
+flowchart LR
+A[Datasets na pasta /data] --> B[Padronização de Schema]
+B --> C[Feature Engineering]
+C --> D[Treinamento Modelo]
+D --> E[Validação Temporal]
+D --> F[Salvar Artefatos]
+F --> G[API FastAPI]
+G --> H[predict]
+G --> I[explain]
+G --> J[drift]
 ```
 
-## Como Executar Localmente
+---
 
-**Pré-requisitos:** Python 3.11+ e arquivos `.xlsx` na pasta `./data/`.
+# 📂 Estratégia Temporal com Dois Datasets
 
-**1. Treinar o modelo:**
+O projeto utiliza dois datasets:
+
+1. **PEDE_PASSOS_DATASET_FIAP.xlsx**
+2. **BASE DE DADOS PEDE 2024 - DATATHON.xlsx**
+
+## 🔹 Por que usar ambos?
+
+A estratégia foi desenhada para:
+
+- Aumentar volume de dados para treino
+- Melhorar robustez estatística
+- Simular cenário real de produção
+- Permitir validação temporal
+
+## 🔹 Como os datasets são usados
+
+| Fase | Dataset | Objetivo |
+|------|----------|----------|
+| Treinamento principal | FIAP | Aprender padrão histórico |
+| Complemento de treino | Base 2024 | Aumentar diversidade |
+| Validação temporal | Base 2024 | Testar generalização |
+| Drift | Produção vs treino | Monitorar estabilidade |
+
+## 🔹 Controle de Leakage
+
+O modelo:
+
+- Nunca utiliza informações futuras para prever passado
+- Constrói o target como:
+  
+  > DEFASAGEM < 0 → aluno está atrás do nível ideal
+
+- Separa corretamente features e target antes do treinamento
+
+---
+
+# 🧪 Seção de Validação Temporal
+
+Além do split tradicional (train/validation), foi implementada:
+
+## ✔ Validação Estratificada
+
+- 80% treino
+- 20% validação
+- Estratificação pela classe de risco
+
+## ✔ Validação Temporal (simulada)
+
+Os dados mais recentes (dataset 2024) são utilizados como proxy de produção para verificar:
+
+- Se o modelo mantém desempenho
+- Se há mudança na distribuição
+- Se as métricas se mantêm estáveis
+
+Essa abordagem reduz risco de overfitting histórico.
+
+---
+
+# 📈 Justificativa Formal das Métricas
+
+O problema é um problema de **classificação binária com impacto social**.
+
+### 🎯 Métricas utilizadas:
+
+## 🔹 AUC-ROC
+Mede capacidade geral de separação entre classes.
+Independe de threshold.
+
+## 🔹 Recall (Classe 1 – Risco)
+Principal métrica de negócio.
+
+Justificativa:
+
+> Falsos negativos representam alunos em risco que não receberiam intervenção pedagógica.
+
+Minimizar falsos negativos é prioridade.
+
+## 🔹 F1-Score
+Balanceia precisão e recall.
+
+---
+
+# 📌 Endpoint `/predict`
+
+Exemplo:
+
+```json
+{
+  "IDADE": 13,
+  "INDE": 6.7,
+  "IEG": 7.1,
+  "IDA": 6.2,
+  "PONTO_VIRADA": 0,
+  "FASE_TURMA": "3-A",
+  "PEDRA": "Ametista",
+  "INSTITUICAO": "Escola Estadual"
+}
+```
+
+Retorno inclui:
+
+- risk_score
+- risk_class
+- risk_level
+- top_risk_factors
+
+---
+
+# 📊 Monitoramento
+
+## 🔹 /metrics
+Exposição para Prometheus
+
+## 🔹 /drift
+Cálculo de PSI (Population Stability Index)
+
+Guia de interpretação:
+
+- PSI < 0.10 → Sem drift
+- 0.10–0.25 → Drift moderado
+- > 0.25 → Drift significativo
+
+## 🔹 /explain
+Histórico e explicação de predições por aluno
+
+---
+
+# 🏁 Conclusão Técnica
+
+A solução entrega:
+
+✔ Modelo robusto treinado com múltiplos datasets  
+✔ Estratégia temporal adequada  
+✔ Controle de leakage  
+✔ Métricas alinhadas ao impacto social  
+✔ Explicabilidade via SHAP  
+✔ Monitoramento de drift  
+✔ Arquitetura pronta para produção  
+
+
+---
+
+# 📘 Explicação dos Campos de Resposta da API
+
+Quando o endpoint `/predict` é chamado, a API retorna alguns campos fundamentais para interpretação do resultado.
+
+## 🔹 risk_score
+
+É a **probabilidade estimada pelo modelo** de que o aluno esteja em risco de defasagem.
+
+- Valor contínuo entre **0 e 1**
+- Quanto mais próximo de 1, maior o risco estimado
+
+Exemplo:
+```
+0.82 → 82% de probabilidade de risco
+```
+
+Esse valor é gerado a partir de `predict_proba()` do modelo RandomForest.
+
+---
+
+## 🔹 risk_class
+
+É a **classe final binária**, calculada a partir do `risk_score` comparado com o threshold definido (padrão: 0.5).
+
+Regra:
 
 ```bash
-python -m src.train
-
+curl "http://localhost:8000/explain?student_id=123&limit=10"
+```
+Se risk_score >= threshold → risk_class = 1 (alto risco)
+Se risk_score < threshold → risk_class = 0 (baixo risco)
 ```
 
-*Gera: `app/model/model.joblib`, `app/model/metadata.json` e `data/train_reference.csv` (para cálculo de drift).*
+Esse campo facilita decisões operacionais.
 
-**2. Subir a API:**
+---
 
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+## 🔹 risk_level
 
-```
+Representação textual da classe:
 
-## Deploy com Docker
+- `"alto"` → aluno classificado como risco
+- `"baixo"` → aluno classificado como não risco
 
-A aplicação está conteinerizada seguindo boas práticas de segurança (execução com usuário não-root).
+Foi criado para facilitar leitura por áreas pedagógicas e não técnicas.
 
-```bash
-docker build -t passos-magicos-api .
-docker run -p 8000:8000 passos-magicos-api
+---
 
-```
+## 🔹 top_risk_factors
 
-## Deploy na Nuvem (Render & Hugging Face)
+Lista com os **5 fatores que mais influenciaram a decisão do modelo**.
 
-A infraestrutura foi desenhada para CI/CD Serverless. O deploy atual está hospedado no Render (camada gratuita).
-
-* **Nota de Cold Start:** A primeira requisição à API em produção pode levar até 50 segundos para responder caso o container esteja "adormecido". As requisições subsequentes ocorrem em tempo real.
-* O download do modelo a partir do Hugging Face Hub é feito de forma transparente pela função `load_artifacts` caso a pasta `app/model` esteja vazia no servidor.
-
-## Endpoints e Exemplos de Uso
-
-A API (disponível visualmente em `/docs`) é flexível. Você pode enviar as chaves em qualquer ordem e até omitir algumas; o serviço reordena e imputa os dados automaticamente de acordo com o pipeline treinado.
-
-### Predição de Risco (POST /predict)
-
-```bash
-curl -X POST https://URL_DO_SEU_RENDER_AQUI/predict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "student_id": "RA-9999",
-    "IDADE": 13,
-    "INDE": 6.7,
-    "IEG": 7.1,
-    "IDA": 6.2,
-    "FASE_TURMA": "3-A",
-    "PEDRA": "Ametista",
-    "INSTITUICAO": "Escola Pública"
-  }'
+Cada item contém:
 
 ```
-
-**Resposta (inclui explicabilidade SHAP):**
-O endpoint retorna o `risk_score`, a classe de risco e os `top_risk_factors` calculados dinamicamente via SHAP (ou Feature Importances globais como fallback).
-
-### Explicabilidade Histórica (GET /explain)
-
-Retorna o histórico de inferências salvas no banco SQLite local (`predictions.sqlite`).
-
-```bash
-curl "https://URL_DO_SEU_RENDER_AQUI/explain?student_id=RA-9999&limit=5"
-
+{
+  "feature": nome_da_variavel,
+  "impact": valor_de_contribuicao
+}
 ```
 
-### Data Drift (GET /drift)
+- Impactos positivos → reduzem risco
+- Impactos negativos → aumentam risco
 
-Compara a distribuição dos dados de treino (Ground Truth) com as inferências em produção usando o **Population Stability Index (PSI)**.
+Esses valores são calculados via **SHAP (SHapley Additive Explanations)**.
 
-```bash
-curl "https://URL_DO_SEU_RENDER_AQUI/drift"
-
-```
-
-### Métricas (GET /metrics)
-
-Expõe contadores de requisições e histogramas de latência formatados para scraping pelo Prometheus.
-
-## Qualidade de Código (Testes Unitários)
-
-O projeto possui cobertura de código superior a 80%, validando o Schema Enforcement, padronização de targets e respostas da API. As integrações externas (Hugging Face) são isoladas através de bibliotecas de Mocking.
-
-```bash
-pytest -q --cov=src --cov=app --cov-report=term-missing --cov-fail-under=80 tests/
+Exemplo:
 
 ```
+[
+  {"feature": "INDE", "impact": -0.34},
+  {"feature": "PONTO_VIRADA", "impact": -0.21},
+  {"feature": "IEG", "impact": -0.18}
+]
+```
+
+Isso permite transparência e explicabilidade do modelo.
+
+---
