@@ -7,6 +7,7 @@ def test_split_X_y_builds_binary_target():
         "IDADE_ALUNO_2020": [10, 11, 12],
         "ANOS_PM_2020": [1, 2, 3],
         "INDE_2020": [5.0, 6.0, 7.0],
+        "IEG_2020": [5.0, 6.0, 7.0],  # coluna extra para o caso FIAP
         "FASE_TURMA_2020": ["1A", "1B", "2A"],
         "PEDRA_2020": ["Quartzo", "Ágata", "Ametista"],
         "INSTITUICAO_ENSINO_ALUNO_2020": ["X", "Y", "Z"],
@@ -16,4 +17,5 @@ def test_split_X_y_builds_binary_target():
 
     assert list(y) == [1, 0, 0]
     assert "DEFASAGEM_2021" not in X.columns
-    assert "INDE_2020" in X.columns
+    # coluna original INDE_2020 é padronizada para `INDE`
+    assert "INDE" in X.columns

@@ -1,0 +1,39 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": null,
+    "title": "PEDE API Monitoring",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "type": "graph",
+        "title": "Requisições por endpoint",
+        "targets": [
+          {
+            "expr": "sum by(endpoint,status)(api_requests_total)",
+            "legendFormat": "{{endpoint}} {{status}}",
+            "refId": "A"
+          }
+        ],
+        "datasource": null,
+        "id": 1
+      },
+      {
+        "type": "graph",
+        "title": "Latência p95",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket[5m])) by (le,endpoint))",
+            "legendFormat": "{{endpoint}}",
+            "refId": "B"
+          }
+        ],
+        "datasource": null,
+        "id": 2
+      }
+    ]
+  },
+  "overwrite": false
+}

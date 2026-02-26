@@ -18,8 +18,8 @@ from src.utils import ARTIFACT_DIR, DATA_DIR, compute_psi, load_json, logger
 
 router = APIRouter()
 
-REQUESTS = Counter("api_requests_total", "Total API requests", ["endpoint", "status"])
-LATENCY = Histogram("api_request_latency_seconds", "Request latency", ["endpoint"])
+REQUESTS = Counter("api_requests_total", "Total de requisições da API", ["endpoint", "status"])
+LATENCY = Histogram("api_request_latency_seconds", "Latência das requisições", ["endpoint"])
 
 DB_PATH = DATA_DIR / "predictions.sqlite"
 
@@ -178,7 +178,7 @@ def _top_factors_fallback(model_pipeline, top_k: int = 5) -> List[Dict[str, Any]
 
 @router.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ativo"}
 
 
 @router.get("/metrics")
@@ -253,7 +253,7 @@ def drift(limit: int = 1000):
     bins_map: Dict[str, Any] = meta.get("drift_bins", {})
 
     if not DB_PATH.exists():
-        return {"message": "No production data logged yet."}
+        return {"message": "Nenhum dado de produção registrado ainda."}
 
     conn = _db()
     rows = conn.execute(
@@ -263,7 +263,7 @@ def drift(limit: int = 1000):
     conn.close()
 
     if not rows:
-        return {"message": "No production data logged yet."}
+        return {"message": "Nenhum dado de produção registrado ainda."}
 
     payloads = [json.loads(r[0]) for r in rows]
     prod = pd.DataFrame(payloads)
@@ -271,7 +271,7 @@ def drift(limit: int = 1000):
 
     ref_path = DATA_DIR / "train_reference.csv"
     if not ref_path.exists():
-        return {"message": "Training reference not found (data/train_reference.csv). Re-run training."}
+        return {"message": "Referência de treinamento não encontrada (data/train_reference.csv). Execute novamente o treinamento."}
 
     ref = pd.read_csv(ref_path)
 

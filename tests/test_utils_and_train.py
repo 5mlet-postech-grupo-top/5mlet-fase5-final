@@ -34,7 +34,6 @@ def test_train_and_evaluate_end_to_end(tmp_path):
         "IPV_2020": [5.2, 5.3, 6.2, 6.2, 6.6, 6.7, 7.0, 7.1],
         "IAN_2020": [5.3, 5.4, 6.3, 6.3, 6.7, 6.8, 7.2, 7.3],
         "IAA_2020": [5.4, 5.5, 6.4, 6.4, 6.8, 6.9, 7.3, 7.4],
-        # target driver
         "DEFASAGEM_2021": [-1, -1, 0, 0, -1, 0, -2, 1],
     })
 
@@ -43,9 +42,16 @@ def test_train_and_evaluate_end_to_end(tmp_path):
     assert (ARTIFACT_DIR / "metadata.json").exists()
     assert (DATA_DIR / "train_reference.csv").exists()
     assert "auc" in meta["metrics"]
-
-    # Evaluate on a temp xlsx file
     xlsx = tmp_path / "mini.xlsx"
     df.to_excel(xlsx, index=False)
     out = evaluate(str(xlsx))
     assert "auc" in out
+
+
+def test_build_preprocessor_simple():
+    df_small = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
+    pre, num, cat = train_mod.build_preprocessor(df_small)
+    assert "a" in num
+    assert "b" in cat
+    arr = pre.fit_transform(df_small)
+    assert arr.shape[0] == 2
