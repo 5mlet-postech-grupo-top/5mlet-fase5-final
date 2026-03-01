@@ -158,16 +158,28 @@ def _top_factors_shap(model_pipeline, X: pd.DataFrame, top_k: int = 5) -> Option
         pre = model_pipeline.named_steps["preprocessor"]
         Xt = pre.transform(X)
 
+        if hasattr(Xt, "toarray"):
+            Xt = Xt.toarray()
+
+        Xt = Xt.astype(float)
+
         try:
             feature_names = list(pre.get_feature_names_out())
         except Exception:
             feature_names = [f"f{i}" for i in range(Xt.shape[1])]
 
         sv = explainer.shap_values(Xt)
-        if isinstance(sv, list) and len(sv) > 1:
-            contrib = sv[1][0]  # class 1
+        if isinstance(sv, list):
+            contrib = sv[1][0] if len(sv) > 1 else sv[0][0]
         else:
-            contrib = np.array(sv)[0]
+            if len(sv.shape) == 3:
+                contrib = sv[0, :, 1]
+            elif len(sv.shape) == 2:
+                contrib = sv[0]
+            else:
+                contrib = sv.flatten()
+
+        contrib = np.array(contrib).flatten()
 
         pairs = sorted(zip(feature_names, contrib), key=lambda x: abs(float(x[1])), reverse=True)[:top_k]
         return [{"feature": f, "impact": float(v)} for f, v in pairs]

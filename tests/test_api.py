@@ -1,12 +1,14 @@
-import json
 import pytest
 import pandas as pd
-from unittest.mock import patch
+import numpy as np
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from src.data_loader import load_all_training_data
 from src.utils import DATA_DIR
 from app.main import app
 from app.routes import load_artifacts
+# noinspection PyProtectedMember
+from app.routes import _top_factors_shap
 
 client = TestClient(app)
 
@@ -91,6 +93,99 @@ def test_load_artifacts_from_huggingface(tmp_path):
         # Garante que os valores retornados são os que injetamos
         assert model == "modelo_fake"
         assert meta["threshold"] == 0.35
+
+def test_top_factors_shap_coverage():
+    """
+    Garante que todas as novas branches de tratamento de dimensoes 
+    e matrizes esparsas do SHAP sejam testadas para manter a cobertura.
+    """
+    # 1. Setup do pipeline mock
+    mock_pipeline = MagicMock()
+    mock_pre = MagicMock()
+
+    # Simula uma matriz esparsa para cobrir o bloco hasattr(Xt, 'toarray')
+    mock_sparse = MagicMock()
+    mock_sparse.toarray.return_value = np.array([[1.0, 2.0]])
+    mock_pre.transform.return_value = mock_sparse
+    mock_pre.get_feature_names_out.return_value = ["f1", "f2"]
+    mock_pipeline.named_steps = {"preprocessor": mock_pre}
+
+    df = pd.DataFrame({"f1": [1], "f2": [2]})
+
+    with patch("app.routes.load_shap_explainer") as mock_load:
+        mock_explainer = MagicMock()
+        mock_load.return_value = mock_explainer
+
+        # Cenário 1: SHAP retorna Lista (formato antigo)
+        mock_explainer.shap_values.return_value = [np.array([[0.1, 0.2]]), np.array([[0.3, 0.4]])]
+        res1 = _top_factors_shap(mock_pipeline, df)
+        assert res1 is not None
+        assert len(res1) == 2
+
+        # Cenário 2: SHAP retorna Array 3D (formato novo RandomForest)
+        mock_explainer.shap_values.return_value = np.array([[[0.1, 0.8], [0.2, 0.9]]])
+        res2 = _top_factors_shap(mock_pipeline, df)
+        assert res2 is not None
+
+        # Cenário 3: SHAP retorna Array 2D (fallback)
+        mock_explainer.shap_values.return_value = np.array([[0.5, 0.6]])
+        res3 = _top_factors_shap(mock_pipeline, df)
+        assert res3 is not None
+
+def test_explain_no_db():
+    """Garante que a API avisa quando o banco de dados ainda não foi criado."""
+    # Alteramos a forma de fazer o patch: mockamos o DB_PATH inteiro
+    with patch("app.routes.DB_PATH") as mock_db_path:
+        mock_db_path.exists.return_value = False
+
+        response = client.get("/explain?student_id=RA-123")
+        assert response.status_code == 200
+        assert response.json() == {"message": "No prediction history yet. Call /predict first."}
+
+def test_explain_no_history():
+    """Garante que a API lida corretamente com um aluno sem previsões anteriores."""
+    with patch("app.routes.DB_PATH") as mock_db_path, \
+            patch("app.routes._db") as mock_db:
+        mock_db_path.exists.return_value = True
+
+        # Simula o banco de dados retornando uma lista vazia
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value = mock_conn
+
+        response = client.get("/explain?student_id=RA-123")
+        assert response.status_code == 200
+        assert "No predictions found" in response.json()["message"]
+
+def test_explain_with_history():
+    """Garante que a API formata e retorna o histórico corretamente."""
+    with patch("app.routes.DB_PATH") as mock_db_path, \
+            patch("app.routes._db") as mock_db:
+        mock_db_path.exists.return_value = True
+
+        # Simula uma linha real retornada pelo SQLite
+        mock_row = (
+            1670000000,
+            0.85,
+            1,
+            "v1.0",
+            '[{"feature": "IDADE", "impact": 0.5}]',
+            '{"IDADE": 15}'
+        )
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [mock_row]
+        mock_db.return_value = mock_conn
+
+        response = client.get("/explain?student_id=RA-123")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["student_id"] == "RA-123"
+        assert data["count"] == 1
+        assert data["latest"]["risk_score"] == 0.85
+        assert data["latest"]["risk_class"] == 1
+        assert data["latest"]["risk_level"] == "alto"
+        assert len(data["latest"]["top_risk_factors"]) == 1
 
     # Limpa o cache novamente para não interferir em outros testes
     load_artifacts.cache_clear()
