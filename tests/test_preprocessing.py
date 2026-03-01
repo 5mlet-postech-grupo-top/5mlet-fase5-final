@@ -9,7 +9,7 @@ def test_split_X_y_builds_binary_target():
         "IDADE_ALUNO_2020": [10, 11, 12],
         "ANOS_PM_2020": [1, 2, 3],
         "INDE_2020": [5.0, 6.0, 7.0],
-        "IEG_2020": [8.0, 9.0, 10.0],
+        "IEG_2020": [5.0, 6.0, 7.0],  # coluna extra para o caso FIAP
         "FASE_TURMA_2020": ["1A", "1B", "2A"],
         "PEDRA_2020": ["Quartzo", "Ágata", "Ametista"],
         "INSTITUICAO_ENSINO_ALUNO_2020": ["X", "Y", "Z"],
