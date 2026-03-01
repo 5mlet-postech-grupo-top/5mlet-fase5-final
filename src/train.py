@@ -20,12 +20,9 @@ from .preprocessing import split_X_y
 from .feature_engineering import add_derived_features
 from .data_loader import load_all_training_data
 from .utils import ARTIFACT_DIR, DATA_DIR, DEFAULT_MODEL_VERSION, logger, make_bins, save_json
+from .preprocessing import split_X_y, enforce_types
 
-
-def build_preprocessor(X: pd.DataFrame) -> Tuple[ColumnTransformer, List[str], List[str]]:
-    categorical = [c for c in X.columns if X[c].dtype == "object"]
-    numeric = [c for c in X.columns if c not in categorical]
-
+def build_preprocessor(numeric_cols: List[str], categorical_cols: List[str]) -> ColumnTransformer:
     num_pipe = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
@@ -37,25 +34,39 @@ def build_preprocessor(X: pd.DataFrame) -> Tuple[ColumnTransformer, List[str], L
 
     pre = ColumnTransformer(
         transformers=[
-            ("num", num_pipe, numeric),
-            ("cat", cat_pipe, categorical),
+            ("num", num_pipe, numeric_cols),
+            ("cat", cat_pipe, categorical_cols),
         ],
         remainder="drop",
         verbose_feature_names_out=False,
     )
-    return pre, numeric, categorical
+    return pre
 
 
 def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> Dict:
     X, y = split_X_y(df)
     X = add_derived_features(X)
 
-    # ensure object cols are strings
-    for c in X.columns:
-        if X[c].dtype == "object":
-            X[c] = X[c].astype(str)
+    X = enforce_types(X)
 
-    pre, numeric, categorical = build_preprocessor(X)
+    # 1. Definição explícita (Schema Enforcement)
+    categorical = ["FASE_TURMA", "PEDRA", "INSTITUICAO"]
+    # Garante que só consideramos as colunas categóricas que realmente existem no df
+    categorical = [c for c in categorical if c in X.columns]
+    numeric = [c for c in X.columns if c not in categorical]
+
+    # 2. Tratamento rigoroso de variáveis numéricas
+    for col in numeric:
+        if X[col].dtype == "object" or X[col].dtype.name == "string":
+            X[col] = X[col].astype(str).str.replace(',', '.', regex=False)
+        X[col] = pd.to_numeric(X[col], errors="coerce")
+
+    # 3. Tratamento rigoroso de variáveis categóricas
+    for col in categorical:
+        X[col] = X[col].astype(str)
+
+    # 4. Passamos as listas explicitamente para o preprocessor
+    pre = build_preprocessor(numeric, categorical)
 
     model = RandomForestClassifier(
         n_estimators=int(os.getenv("RF_TREES", "400")),
@@ -72,8 +83,9 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
     )
     clf.fit(X_train, y_train)
 
+    THRESHOLD = 0.35
     proba = clf.predict_proba(X_val)[:, 1]
-    pred = (proba >= 0.5).astype(int)
+    pred = (proba >= THRESHOLD).astype(int)
 
     metrics = {
         "auc": float(roc_auc_score(y_val, proba)),
@@ -108,7 +120,7 @@ def train(df: pd.DataFrame, model_version: str, save_reference: bool = True) -> 
             "derived": ["ANOS_PM_POR_IDADE"],
         },
         "metrics": metrics,
-        "threshold": 0.5,
+        "threshold": THRESHOLD,
         "drift_bins": drift_bins,
     }
 

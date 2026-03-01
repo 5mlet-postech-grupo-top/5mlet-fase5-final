@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import time
-
+from app.main import app
 import pandas as pd
 from fastapi.testclient import TestClient
 

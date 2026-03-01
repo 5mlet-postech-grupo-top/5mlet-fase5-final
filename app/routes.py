@@ -10,10 +10,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from huggingface_hub import hf_hub_download
 
 from src.feature_engineering import add_derived_features
+from src.preprocessing import enforce_types
 from src.utils import ARTIFACT_DIR, DATA_DIR, compute_psi, load_json, logger
 
 router = APIRouter()
@@ -57,8 +59,20 @@ def _db():
 def load_artifacts():
     model_path = ARTIFACT_DIR / "model.joblib"
     meta_path = ARTIFACT_DIR / "metadata.json"
+    # Se os arquivos não existirem, fazemos o pull do Model Registry
     if not model_path.exists() or not meta_path.exists():
-        raise RuntimeError("Model artifacts not found. Run `python -m src.train` first.")
+        logger.info("Artefatos não encontrados localmente. Baixando do Hugging Face...")
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Substitua pelo nome exato do seu repositório no Hugging Face
+        REPO_ID = "tiagoparibeiro/passos-magicos-model"
+
+        try:
+            hf_hub_download(repo_id=REPO_ID, filename="model.joblib", local_dir=ARTIFACT_DIR)
+            hf_hub_download(repo_id=REPO_ID, filename="metadata.json", local_dir=ARTIFACT_DIR)
+        except Exception as e:
+            raise RuntimeError(f"Falha ao baixar modelo do Hugging Face: {e}")
+
     model = joblib.load(model_path)
     meta = load_json(meta_path)
     return model, meta
@@ -83,8 +97,16 @@ def load_shap_explainer():
 
 
 class PredictRequest(BaseModel):
+    """
+        Schema flexível para receber dados de qualquer ano do Datathon.
+        Mantemos campos core para gerar um bom Swagger/OpenAPI docs.
+        """
     model_config = ConfigDict(extra="allow")
 
+    student_id: Optional[str] = Field(None, description="Identificador único do aluno")
+    IDADE: Optional[int] = Field(None, description="Idade do aluno")
+    FASE_TURMA: Optional[str] = Field(None, description="Ex: 5G")
+    INDE: Optional[float] = Field(None, description="Indicador de Desenvolvimento Educacional")
 
 def _extract_student_id(payload: Dict[str, Any]) -> str:
     """Best-effort student identifier for history/explain."""
@@ -136,16 +158,28 @@ def _top_factors_shap(model_pipeline, X: pd.DataFrame, top_k: int = 5) -> Option
         pre = model_pipeline.named_steps["preprocessor"]
         Xt = pre.transform(X)
 
+        if hasattr(Xt, "toarray"):
+            Xt = Xt.toarray()
+
+        Xt = Xt.astype(float)
+
         try:
             feature_names = list(pre.get_feature_names_out())
         except Exception:
             feature_names = [f"f{i}" for i in range(Xt.shape[1])]
 
         sv = explainer.shap_values(Xt)
-        if isinstance(sv, list) and len(sv) > 1:
-            contrib = sv[1][0]  # class 1
+        if isinstance(sv, list):
+            contrib = sv[1][0] if len(sv) > 1 else sv[0][0]
         else:
-            contrib = np.array(sv)[0]
+            if len(sv.shape) == 3:
+                contrib = sv[0, :, 1]
+            elif len(sv.shape) == 2:
+                contrib = sv[0]
+            else:
+                contrib = sv.flatten()
+
+        contrib = np.array(contrib).flatten()
 
         pairs = sorted(zip(feature_names, contrib), key=lambda x: abs(float(x[1])), reverse=True)[:top_k]
         return [{"feature": f, "impact": float(v)} for f, v in pairs]
@@ -181,27 +215,22 @@ def health():
     return {"status": "ativo"}
 
 
-@router.get("/metrics")
-def metrics():
-    data = generate_latest()
-    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
-
-
 @router.post("/predict")
 def predict(body: PredictRequest):
     t0 = time.time()
     endpoint = "/predict"
     try:
         model, meta = load_artifacts()
-        payload = dict(body)
+        payload = body.model_dump()
         student_id = _extract_student_id(payload)
 
         X = pd.DataFrame([payload])
         X = add_derived_features(X)
+        X = enforce_types(X)
         X = _ensure_expected_columns(X, meta)
 
         proba = float(model.predict_proba(X)[:, 1][0])
-        threshold = float(meta.get("threshold", 0.5))
+        threshold = float(meta.get("threshold", 0.35))
         pred = int(proba >= threshold)
 
         out: Dict[str, Any] = {

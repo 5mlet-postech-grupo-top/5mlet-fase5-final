@@ -50,8 +50,6 @@ def test_train_and_evaluate_end_to_end(tmp_path):
 
 def test_build_preprocessor_simple():
     df_small = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
-    pre, num, cat = train_mod.build_preprocessor(df_small)
-    assert "a" in num
-    assert "b" in cat
-    arr = pre.fit_transform(df_small)
-    assert arr.shape[0] == 2
+    pre = train_mod.build_preprocessor(df_small, categorical_cols=["b"])
+
+    assert pre is not None

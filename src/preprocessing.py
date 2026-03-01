@@ -144,3 +144,27 @@ def split_X_y(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
         mask = pd.Series([True] * len(df))
 
     return X.loc[mask].reset_index(drop=True), y.loc[mask].reset_index(drop=True)
+
+
+def enforce_types(X: pd.DataFrame) -> pd.DataFrame:
+    """
+    Garante que as tipagens numéricas e categóricas estejam corretas,
+    tratando sujeiras (como datas em colunas numéricas ou notas com vírgula).
+    """
+    X = X.copy()
+
+    categorical = ["FASE_TURMA", "PEDRA", "INSTITUICAO"]
+    categorical = [c for c in categorical if c in X.columns]
+    numeric = [c for c in X.columns if c not in categorical]
+
+    for col in numeric:
+        if X[col].dtype == "object" or X[col].dtype.name == "string":
+            # Troca vírgula por ponto no padrão brasileiro de notas
+            X[col] = X[col].astype(str).str.replace(',', '.', regex=False)
+        # Força conversão: o que for lixo puro vira NaN
+        X[col] = pd.to_numeric(X[col], errors="coerce")
+
+    for col in categorical:
+        X[col] = X[col].astype(str)
+
+    return X
